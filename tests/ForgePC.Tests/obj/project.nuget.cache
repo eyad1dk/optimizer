@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "dgSpecHash": "N1+Ma4TiOuM=",
+  "success": true,
+  "projectFilePath": "C:\\Users\\Fazey\\Documents\\Codex\\2026-10-03\\ma\\work\\optimizer\\tests\\ForgePC.Tests\\ForgePC.Tests.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\Fazey\\.nuget\\packages\\system.codedom\\10.0.12\\system.codedom.10.0.12.nupkg.sha512",
+    "C:\\Users\\Fazey\\.nuget\\packages\\system.management\\10.0.12\\system.management.10.0.12.nupkg.sha512"
+  ],
+  "logs": []
+}
