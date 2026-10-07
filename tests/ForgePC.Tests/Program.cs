@@ -469,18 +469,31 @@ try
  Test("maintenance allowlist excludes arbitrary commands and security services",()=>{Throws<InvalidDataException>(()=>Maintenance.Validate("cmd","/c whoami"));Throws<InvalidDataException>(()=>Maintenance.Validate("renew","Ethernet;whoami"));Maintenance.Validate("dns-test","example.com");foreach(var service in new[]{"WinDefend","mpssvc","wuauserv","CryptSvc","Dhcp","EventLog"})Throws<InvalidDataException>(()=>HardwareBackend.ValidateId("hw:service:"+service));});
  Test("policy binary restore maps unconfigured to permission without losing original",()=>{var h=new HardwareControl("hw:policy:ads","Advertising permission","Privacy","absent",[new("0","Enabled"),new("1","Disabled"),new("absent","Not configured")],"",true,"0","1",true);var item=new OperationItem(HardwareBackend.Definition(h.Id)){Hardware=h};item.Detect("absent");Assert(item.ActionLabel=="Disable"&&item.BinaryTarget("absent")=="1");item.Detect("1");Assert(item.ActionLabel=="Enable"&&h.Effective("absent")=="0");});
 
+
+ Test("central action registry has unique IDs and explicit verification/recovery",()=>{var actions=Catalog.Actions;Assert(actions.Count==actions.Select(a=>a.Id).Distinct().Count());Assert(actions.All(a=>a.Verification.Length>10&&a.Recovery.Length>5));Assert(Catalog.SystemTasks.All(t=>Catalog.Action(t.Id).Method.Contains(t.Executable)));Throws<InvalidDataException>(()=>Catalog.Action("injected"));});
+ Test("automatic optimization excludes every advanced or moderate control",()=>{Assert(RecommendationEngine.SafeForAutomatic("menus"));foreach(var id in new[]{"power","cpu-boost-ac","hw:trim","hw:compression","service:Spooler"})Assert(!RecommendationEngine.SafeForAutomatic(id));});
+ Test("profile resolver uses shared IDs and safe mode filters advanced targets",()=>{Recommendation[] rules=[new("menus","Windows","Off","Selected reduced motion",false),new("hw:trim","Storage","On","Detected SSD",false)];var profile=ProfileStore.FromRecommendations("Competitive",rules,true);Assert(profile.Parameters.Count==1&&profile.Parameters[0].Id=="menus");Assert(ProfileStore.NormalizeFocus("Competitive Gaming")=="Competitive");});
+ Test("network guard rejects disconnected baseline before write",()=>{var id="hw:net:rss:"+Guid.NewGuid().ToString("D");Throws<IOException>(()=>NetworkGuard.Prepare(id,_=>new(true,false,true,true),()=>{}));Assert(NetworkGuard.Prepare("menus")==null);});
+ Test("network guard retries transient interruption and rejects sustained loss",()=>{var id="hw:net:rss:"+Guid.NewGuid().ToString("D");int reads=0;var verify=NetworkGuard.Prepare(id,_=>new(true,++reads==1||reads>=4,true,true),()=>{});verify!();Assert(reads==4);reads=0;verify=NetworkGuard.Prepare(id,_=>new(true,++reads==1,true,true),()=>{});Throws<IOException>(()=>verify!());Assert(reads==7);});
+ Test("connectivity failure rolls back latest write then earlier batch changes",()=>{var s=new FakeSettings{ConnectivityCheck=()=>throw new IOException("Simulated adapter loss")};var store=new JournalStore(Path.Combine(root,Guid.NewGuid().ToString("N")));var engine=new TuningEngine(s,store,new PermissiveCapabilities());var result=engine.ApplyAsync("Guarded",Changes()).GetAwaiter().GetResult();Assert(!result.Success&&s.Values["animations"]=="On"&&s.Values["menus"]=="On");Assert(result.Message.Contains("Simulated adapter loss"));Assert(result.Journal.Operations[0].LastError.Contains("adapter loss"));});
+ Test("restart marker clears on later boot and includes restore writes",()=>{var boot=DateTime.UtcNow.AddHours(-2);var op=new OperationRecord{Id="hw:compression",RestartNeeded=RestartKind.Windows,LastWriteUtc=boot.AddHours(1),State="rolled back"};Assert(RestartTracking.Pending(op,boot));Assert(!RestartTracking.Pending(op,DateTime.UtcNow));Assert(RestartTracking.Required("service:Spooler")==RestartKind.None);});
+ Test("driver alias matching is exact and ambiguous meanings remain manual",()=>{var prefix="hw:net:prop:"+Guid.NewGuid().ToString("D")+":";HardwareControl C(string name)=>new(prefix+Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes("VendorProperty")),name,"Network","1",[new("1","Enabled"),new("0","Disabled")],"",true,"1","0",true);Assert(RecommendationEngine.NetworkPropertyKind(C("Energy-Efficient Ethernet · Ethernet"))=="EEE");Assert(RecommendationEngine.NetworkPropertyKind(C("Green Ethernet"))==null);Assert(RecommendationEngine.NetworkPropertyKind(C("Mystery EEE tuning"))==null);});
+ Test("details show recommendation original current and restore status",()=>{var row=new OperationItem(Catalog.Get("menus")){Original="On",Current="Off",CanRestore=true,RecommendationReason="User selected reduced motion"};Assert(row.AuditDetails.Contains("Original value: On")&&row.AuditDetails.Contains("Current value: Off")&&row.AuditDetails.Contains("Why recommended: User selected"));});
+ Test("startup recovery explicitly preserves source and enabled state",()=>{var record=new StartupRecovery(1,Guid.NewGuid().ToString("N"),"Test","test.exe",Microsoft.Win32.RegistryValueKind.String,"prepared");StartupManager.Validate(record);Assert(record.Source=="HKCU Run"&&record.OriginallyEnabled);Throws<InvalidDataException>(()=>StartupManager.Validate(record with{Source="HKLM Run"}));});
+ Test("Prefetch scan and cleanup report locked files separately",()=>{var folder=Path.Combine(root,"prefetch-counts");Directory.CreateDirectory(folder);var path=Path.Combine(folder,"locked.pf");File.WriteAllText(path,"locked fixture");using var held=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.None);var cleaner=new CacheCleaner(new("prefetch","Fixture",folder,"*.pf",0,false,false,"test"));var scan=cleaner.Execute(false);Assert(scan.LockedFiles==1&&scan.FilesBefore==1);var clean=cleaner.Execute(true);Assert(clean.LockedFiles==1&&clean.FilesRemoved==0&&clean.FilesAfter==1&&clean.BytesRemoved==0);});
  Console.WriteLine($"{passed} regression checks passed. No Windows settings were changed. Native deletion tests use only disposable fixtures created by the test suite.");
 
 }
 
 finally { Directory.Delete(root,true); }
 
-sealed class FakeSettings : ISettings
+sealed class FakeSettings : ISettings, IChangeGuardedSettings
 
 {
 
  public Dictionary<string,string> Values=new(){{"animations","On"},{"menus","On"}};
 
+ public Action? ConnectivityCheck; public Action? PrepareConnectivityCheck(string id)=>ConnectivityCheck;
  public string? FailKey; public bool WriteThenFail,IgnoreWrites; public int Writes; public Action? AfterWrite;
 
  public string Read(string key)=>Values[key];
