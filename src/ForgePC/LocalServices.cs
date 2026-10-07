@@ -42,6 +42,7 @@ public sealed class RestorePointService : IRestorePointService
  {
   try
   {
+   if(SystemCommands.IsAdministrator)return ResultFromCode(await Task.Run(RunDedicatedHelper,token));
    var executable=Environment.ProcessPath ?? throw new IOException();
    if(!Path.GetFileName(executable).Equals("EZoptimizer.exe",StringComparison.OrdinalIgnoreCase))return new("Unavailable","Restore-point creation requires the packaged EZoptimizer executable; this development host cannot request elevation.");
    // The elevated mode accepts one fixed switch, no command, path, profile or IPC payload.

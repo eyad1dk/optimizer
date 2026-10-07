@@ -137,6 +137,7 @@ public sealed class WindowsCapabilityService(WindowsSettings settings) : ICapabi
   try
   {
    Catalog.ValidateTarget(id,target);
+   if(id=="hw:pagefile"&&!restoring)return new(false,"Pagefile writes are unsupported until multi-step failure recovery is validated. Use Windows Virtual Memory settings; existing saved recovery remains available.");
    if(Environment.OSVersion.Version.Build<19045)return new(false,"This preview requires Windows 10 22H2 or Windows 11. Servicing eligibility must be checked separately.");
    if(id=="power")
    {

@@ -23,14 +23,8 @@ public sealed class ProfileStore
   return result;
  }
  public static string Serialize(ProfileDocument profile) { var content = JsonSerializer.Serialize(profile,Json); Parse(content); return content; }
- public static ProfileDocument BuiltIn(string name)
- {
-  if(name=="Custom")return new(1,name,[]);
-  var plan=name is "Quiet" or "Battery Saver"?"a1841308-3541-4fab-bc81-f71556f20b4a":name=="Maximum Performance"?"8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c":"381b4222-f694-41f0-9685-ff5bb260df2e";
-  var result=new ProfileDocument(1,name,[new("animations",1,name is "Everyday" or "Balanced"?"On":"Off"),new("menus",1,name is "Everyday" or "Balanced"?"On":"Off"),new("power",1,plan)]);
-  if(name is "Competitive Gaming" or "Low-End PC")foreach(var id in new[]{"minimize-animation","combo-animation","tooltip-animation","selection-fade"})result.Parameters.Add(new(id,1,"Off"));
-  return result;
- }
+ public static string NormalizeFocus(string name)=>name switch {"Competitive Gaming"=>"Competitive","Maximum Performance"=>"Performance","Everyday"=>"Balanced",_=>name};
+ public static ProfileDocument FromRecommendations(string name,IEnumerable<Recommendation> recommendations,bool safeOnly=false)=>new(1,name,recommendations.Where(r=>!r.Optimized&&(!safeOnly||RecommendationEngine.SafeForAutomatic(r.Id))).Select(r=>new ProfileParameter(r.Id,Catalog.Get(r.Id).Version,r.Target)).ToList());
 
 }
 public sealed class QueueStore(string path)

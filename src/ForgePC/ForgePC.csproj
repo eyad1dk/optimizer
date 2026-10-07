@@ -6,7 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AssemblyName>EZoptimizer</AssemblyName>
-    <Version>2.1.0</Version>
+    <Version>2.1.1</Version>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <Description>Understand your PC. Tune it for what you do.</Description>
   </PropertyGroup>

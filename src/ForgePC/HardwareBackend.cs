@@ -43,7 +43,7 @@ public static class HardwareBackend
  {
   ValidateId(id);Known.TryGetValue(id,out var control);
   string category=id.StartsWith("hw:service:")?"Services":id.StartsWith("hw:net:")?"Network":id=="hw:trim"?"Storage":id is "hw:policy:ads" or "hw:policy:speech"?"Privacy":id=="hw:policy:throttle"?"CPU":id=="hw:policy:dvr"?"Gaming":"Memory";
-  return new(id,1,control?.Name??id,category,"Change the detected Windows configuration using its documented system interface.",control?.Note??"Hardware or policy dependent. Review the saved original before restoring.",Documentation(id),Evidence.WorkloadDependent,"Advanced · system configuration",Restart:id=="hw:compression"||id=="hw:pagefile"||id.StartsWith("hw:policy:")||id.StartsWith("hw:net:prop:"),RequiresAdministrator:true);
+  return new(id,1,control?.Name??id,category,"Change the detected Windows configuration using its documented system interface.",control?.Note??"Hardware or policy dependent. Review the saved original before restoring.",Documentation(id),Evidence.WorkloadDependent,"Advanced · system configuration",Restart:RestartTracking.Required(id)!=RestartKind.None,RequiresAdministrator:true);
  }
  public static string Method(string id)=>id switch {
   _ when id.StartsWith("hw:service:")=>"Get-Service; Start-Service or Stop-Service without Force; ServiceController.WaitForStatus; allowlisted optional services only",

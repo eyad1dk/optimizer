@@ -113,7 +113,7 @@ public sealed partial class MainViewModel : Observable, IDisposable
 
 
 
- public string CategorySummary=>Category=="All"?"Only controls with captured originals and verified recovery are listed. Windows shortcuts are separate.":Category=="Startup"?"Current-user startup registration controls are on the Startup page; exact originals are retained.":Category=="Gaming"?"Reviewed process priority and game sessions are on Profiles; game profiles reuse the native controls below.":Catalog.Operations.Any(o=>o.Category==Category)?"Reviewed native controls for "+Category+". Open each audit for its method and recovery contract.":"No reversible native optimization is implemented in "+Category+". Available inspection tools and Windows shortcuts are not counted as optimizations.";
+ public string CategorySummary=>Category=="All"?"Only controls with captured originals and verified recovery are listed. Windows shortcuts are separate.":Category=="Startup"?"Current-user startup registration controls are on the Startup page; exact originals are retained.":Category=="Gaming"?"Reviewed process priority and game sessions are on Profiles; game profiles reuse the native controls below.":Operations.Any(o=>o.Definition.Category==Category&&o.Eligible)?"Reviewed native controls for "+Category+". Open each audit for its method and recovery contract.":"No reversible native optimization is implemented in "+Category+". Available inspection tools and Windows shortcuts are not counted as optimizations.";
  public string[] Categories {get;}=["All",.. OptimizationAudit.Categories];
 
  public string[] Themes {get;}=["Dark","Light","Windows","High contrast"];
@@ -223,7 +223,7 @@ public sealed partial class MainViewModel : Observable, IDisposable
 
   Clear=Make(_=>{desired.Clear();PersistQueue();return Task.CompletedTask;},()=>!Busy&&!Tools.Busy&&!(Actions?.Busy??false));
 
-  StageProfile=Make(_=>{var doc=ProfileStore.BuiltIn(Profile);if(ReduceMotion)foreach(var id in new[]{"minimize-animation","combo-animation","list-smooth-scroll","tooltip-animation","selection-fade"})if(!doc.Parameters.Any(p=>p.Id==id))doc.Parameters.Add(new(id,1,"Off"));return LoadProfile(doc);},()=>!Busy&&!Tools.Busy&&!(Actions?.Busy??false));
+  StageProfile=Make(_=>{var doc=ResolveProfile(Profile);if(ReduceMotion)foreach(var id in new[]{"minimize-animation","combo-animation","list-smooth-scroll","tooltip-animation","selection-fade"})if(!doc.Parameters.Any(p=>p.Id==id))doc.Parameters.Add(new(id,1,"Off"));return LoadProfile(doc);},()=>!Busy&&!Tools.Busy&&!(Actions?.Busy??false));
 
   ImportFrames=Make(async _=>{
 
@@ -366,7 +366,7 @@ public sealed partial class MainViewModel : Observable, IDisposable
 
  }
 
- private async Task ReloadHistory(){Replace(History,await Task.Run(()=>engine.History()));foreach(var item in Operations)item.CanRestore=History.Any(j=>j.IsActive&&j.Operations.Any(o=>o.Id==item.Id&&o.State!="rolled back"));if(engine.Store.HasQuarantinedHistory)Status="History has quarantined or unreadable records. New batches are blocked; valid sessions can still be restored. Keep the history folder for support.";Raise(nameof(RecoverySummary));Raise(nameof(ActiveProfile));Raise(nameof(AppliedCount));Raise(nameof(RestartIndicator));}
+ private async Task ReloadHistory(){Replace(History,await Task.Run(()=>engine.History()));foreach(var item in Operations){var saved=History.Where(j=>j.IsActive).SelectMany(j=>j.Operations).FirstOrDefault(o=>o.Id==item.Id&&o.State!="rolled back");item.CanRestore=saved!=null;item.Original=saved==null?"No active saved change":Friendly(item.Id,saved.Before);}if(engine.Store.HasQuarantinedHistory)Status="History has quarantined or unreadable records. New batches are blocked; valid sessions can still be restored. Keep the history folder for support.";Raise(nameof(RecoverySummary));Raise(nameof(ActiveProfile));Raise(nameof(AppliedCount));Raise(nameof(RestartIndicator));}
 
  private async Task Diagnostics(){Status="Reading accessible processes, startup entries and registered applications…";await Task.WhenAll(ReadProcesses(),ReadStartup(),ReadApps());Network=string.Join("\n\n",await Task.Run(probe.NetworkInventory));Status="Inventory refreshed. Protected processes and packaged/startup apps may be absent; Windows is the complete management workflow.";}
 

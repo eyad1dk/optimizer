@@ -8,8 +8,8 @@ namespace ForgePC;
 
 public record CacheSpec(string Id,string Name,string Root,string Pattern,int MinimumAgeDays,bool Recursive,bool Administrator,string Note);
 public record CacheFile(string Path,long Bytes,long Modified);
-public record CacheSnapshot(List<CacheFile> Files,int Skipped,bool Partial);
-public record CacheOutcome(string Id,bool Success,int FilesBefore,long BytesBefore,int FilesRemoved,int FilesSkipped,long BytesRemoved,int FilesAfter,long BytesAfter,bool Partial,string Message);
+public record CacheSnapshot(List<CacheFile> Files,int Skipped,bool Partial,int Locked=0);
+public record CacheOutcome(string Id,bool Success,int FilesBefore,long BytesBefore,int FilesRemoved,int FilesSkipped,long BytesRemoved,int FilesAfter,long BytesAfter,bool Partial,string Message,int LockedFiles=0);
 
 // No supplied paths cross the elevation boundary. The helper resolves this fixed catalog itself.
 public static class CacheCatalog
@@ -44,7 +44,7 @@ public sealed class CacheCleaner(CacheSpec spec)
  public CacheSnapshot Scan()
  {
   if(!Directory.Exists(root))return new([],0,false);
-  ValidateRoot();var files=new List<CacheFile>();var pending=new Stack<string>();pending.Push(root);var timer=Stopwatch.StartNew();int inspected=0,skipped=0;bool partial=false;
+  ValidateRoot();var files=new List<CacheFile>();var pending=new Stack<string>();pending.Push(root);var timer=Stopwatch.StartNew();int inspected=0,skipped=0,locked=0;bool partial=false;
   while(pending.TryPop(out var folder))
   {
    if(timer.Elapsed.TotalSeconds>5||inspected>=25000){partial=true;break;}
@@ -55,20 +55,21 @@ public sealed class CacheCleaner(CacheSpec spec)
      if((info.Attributes&FileAttributes.Directory)!=0){if(spec.Recursive&&Path.GetRelativePath(root,path).Count(c=>c=='\\')<8)pending.Push(path);continue;}
      if(!System.IO.Enumeration.FileSystemName.MatchesSimpleExpression(spec.Pattern,info.Name,true))continue;
      if(info.LastWriteTimeUtc>DateTime.UtcNow.AddDays(-spec.MinimumAgeDays)){skipped++;continue;}
+     using(var probe=CreateFile(path,0x80010000,1,IntPtr.Zero,3,0x00200000,IntPtr.Zero)){if(probe.IsInvalid&&Marshal.GetLastWin32Error() is 32 or 33)locked++;}
      files.Add(new(path,info.Length,info.LastWriteTimeUtc.ToFileTimeUtc()));
     }catch(Exception e)when(e is IOException or UnauthorizedAccessException){skipped++;partial=true;}
    }}catch(Exception e)when(e is IOException or UnauthorizedAccessException){skipped++;partial=true;}
   }
-  return new(files,skipped,partial);
+  return new(files,skipped,partial,locked);
  }
  public CacheOutcome Execute(bool clean)
  {
-  var before=Scan();int removed=0,skipped=before.Skipped;long bytes=0;
-  if(clean)foreach(var file in before.Files){try{DeleteVerified(file);removed++;bytes+=file.Bytes;}catch(Exception e)when(e is IOException or UnauthorizedAccessException or Win32Exception or InvalidDataException){skipped++;}}
+  var before=Scan();int removed=0,skipped=before.Skipped,locked=0;long bytes=0;
+  if(clean)foreach(var file in before.Files){try{DeleteVerified(file);removed++;bytes+=file.Bytes;}catch(Exception e)when(e is IOException or UnauthorizedAccessException or Win32Exception or InvalidDataException){skipped++;if(e is Win32Exception native&&native.NativeErrorCode is 32 or 33)locked++;}}
   var after=clean?Scan():before;var partial=before.Partial||after.Partial;
   bool success=!clean?!partial:removed==before.Files.Count&&!partial;
   return new(spec.Id,success,before.Files.Count,before.Files.Sum(f=>f.Bytes),removed,skipped,bytes,after.Files.Count,after.Files.Sum(f=>f.Bytes),partial,
-   !clean?(partial?"Partial scan; some paths could not be read.":"Scan complete."):before.Files.Count==0?"No eligible files found.":$"{removed} files removed; {skipped} skipped; {after.Files.Count} eligible files remain."+(partial?" Partial bounded scan.":""));
+   !clean?(partial?"Partial scan; some paths could not be read.":"Scan complete."):before.Files.Count==0?"No eligible files found.":$"{removed} files removed; {skipped} skipped; {after.Files.Count} eligible files remain."+(partial?" Partial bounded scan.":""),clean?locked:before.Locked);
  }
  // Open the exact object without following a final symlink, deny writers/deleters, then check physical path and metadata.
  internal void DeleteVerified(CacheFile file)

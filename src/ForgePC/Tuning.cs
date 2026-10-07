@@ -17,7 +17,10 @@ public sealed class OperationRecord
  public string Target { get; set; } = "";
  public string State { get; set; } = "prepared";
  public string Result { get; set; } = "";
+ public string LastError {get;set;}="";
  public long DurationMs { get; set; }
+ public DateTime? LastWriteUtc {get;set;}
+ public RestartKind RestartNeeded {get;set;}
 }
 public sealed class Journal
 {
@@ -59,6 +62,7 @@ public sealed class JournalStore(string directory) : IJournalStore
   for (var i = 0; i < j.Operations.Count; i++)
   {
    var operation = j.Operations[i]; var change = j.Changes[i];
+   if (!Enum.IsDefined(operation.RestartNeeded)||operation.RestartNeeded!=RestartKind.None&&operation.RestartNeeded!=RestartTracking.Required(operation.Id))throw new InvalidDataException("Invalid restart requirement.");
    if (operation.Id != change.Key || operation.Before != change.Before || operation.Target != change.After ||
     operation.Version != Catalog.Get(operation.Id).Version || operation.ValueType != Catalog.ValueType(operation.Id) ||
     operation.State is not ("prepared" or "applying" or "applied" or "failed" or "rolling back" or "rolled back" or "conflict"))
@@ -180,12 +184,15 @@ public sealed class TuningEngine
      cancellation.ThrowIfCancellationRequested();
      var c = changes[i]; var op = j.Operations[i]; var watch = Stopwatch.StartNew();
      Validate(c); // Applicability, policy and preview are rechecked at each boundary.
+     var verifyConnectivity=(settings as IChangeGuardedSettings)?.PrepareConnectivityCheck(c.Key);
      j.Status = "applying"; op.State = "applying"; Store.Save(j);
      progress?.Report(new(j.Id,c.Key,op.State,i,changes.Count));
      if(settings is IConditionalSettings conditional)conditional.WriteIfUnchanged(c.Key,c.Before,c.After);else settings.Write(c.Key,c.After);
      if (settings.Read(c.Key) != c.After) throw new IOException("Write verification failed.");
+     op.LastWriteUtc=DateTime.UtcNow;op.RestartNeeded=RestartTracking.Required(op.Id);
+     verifyConnectivity?.Invoke();
      op.State = "applied"; op.Result = "Read-back verified"; op.DurationMs = watch.ElapsedMilliseconds;
-     Store.Save(j); log(j.Id,c.Key,"applied and verified",op.DurationMs);
+     Store.Save(j); log(j.Id,c.Key,EvidenceLog("apply",op,"verified"),op.DurationMs);
      progress?.Report(new(j.Id,c.Key,op.State,i+1,changes.Count));
     }
     j.Status = "applied"; Store.Save(j);
@@ -197,14 +204,15 @@ public sealed class TuningEngine
     j.Status = "interrupted";
     try { Store.Save(j); } catch(Exception saveError) { log(j.Id,"journal","intent-save failed:"+saveError.GetType().Name,0); /* Previous intent remains durable. */ }
     log(j.Id,"apply",error.GetType().Name+":"+error.HResult.ToString("X8"),0);
-    foreach(var attempted in j.Operations.Where(o=>o.State=="applying"))attempted.Result="Apply failed: "+error.GetType().Name+"; recovery attempted";
+    foreach(var attempted in j.Operations.Where(o=>o.State=="applying")){attempted.LastError=error.Message;attempted.Result="Apply failed: "+error.Message+"; recovery attempted";}
     var problems = RestoreCore(j,progress);
-    return new(j,false,(cancelled ? "Cancelled at a safe boundary." : "Apply stopped.") +
+    return new(j,false,(cancelled ? "Cancelled at a safe boundary." : "Apply stopped: "+error.Message) +
      (problems.Count == 0 ? " All attempted changes were restored." : " Some settings need recovery review.") + " Session " + j.Id[..8] + ".");
    }
   }
   finally { serial.Release(); }
  }
+ private static string EvidenceLog(string action,OperationRecord op,string verification)=>JsonSerializer.Serialize(new{Action=action,Previous=op.Id.StartsWith("hw:net:")?"[saved in recovery]":op.Before,Requested=op.Id.StartsWith("hw:net:")?"[saved in recovery]":action=="restore"?op.Before:op.Target,Result=op.State,Verification=verification,Error=op.LastError.Length==0?null:"[details in recovery]"});
  private void Validate(Change c)
  {
   Catalog.ValidateTarget(c.Key,c.Before); Catalog.ValidateTarget(c.Key,c.After);
@@ -236,16 +244,17 @@ public sealed class TuningEngine
     {
      var cap = capabilities.CheckRestore(op.Id,op.Before);
      if (!cap.Eligible) throw new InvalidOperationException("Current capability or policy prevents restoration.");
-     journal.Status = "rolling back"; op.State = "rolling back"; Store.Save(journal);
+     journal.Status = "rolling back"; op.State = "rolling back";Store.Save(journal);
      if(settings is IConditionalSettings conditional)conditional.WriteIfUnchanged(op.Id,current,op.Before);else settings.Write(op.Id,op.Before);
+     op.LastWriteUtc=DateTime.UtcNow;op.RestartNeeded=RestartTracking.Required(op.Id);
     }
     if (settings.Read(op.Id) != op.Before) throw new IOException("Restore verification failed.");
     op.State = "rolled back"; op.Result = "Original value verified"; journal.Restored.Add(op.Id); Store.Save(journal);
-    log(journal.Id,op.Id,"restored and verified",op.DurationMs);
+    log(journal.Id,op.Id,EvidenceLog("restore",op,"verified"),op.DurationMs);
     progress?.Report(new(journal.Id,op.Id,op.State,journal.Restored.Count,journal.Operations.Count));
    }
-   catch
-   { op.State = "failed"; journal.Restored.Remove(op.Id); op.Result = "Could not verify original value or persist recovery state"; issues.Add(Catalog.Get(op.Id).Title + " could not be restored. Retry recovery."); try { Store.Save(journal); } catch(Exception error) { log(journal.Id,op.Id,"recovery-save failed:"+error.GetType().Name,0); } }
+   catch(Exception failure)
+   { op.State = "failed"; journal.Restored.Remove(op.Id); op.Result = "Restore failed: "+failure.Message; issues.Add(Catalog.Get(op.Id).Title + ": "+failure.Message+" Retry recovery."); try { Store.Save(journal); } catch(Exception error) { log(journal.Id,op.Id,"recovery-save failed:"+error.GetType().Name,0); } }
   }
   journal.Status = issues.Count == 0 && journal.Operations.All(op=>op.State=="rolled back") ? "restored" : "restore incomplete";
   try { Store.Save(journal); } catch { issues.Add("Recovery state could not be saved. Keep the history folder and retry."); journal.Status = "restore incomplete"; }

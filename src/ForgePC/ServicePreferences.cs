@@ -6,6 +6,7 @@ namespace ForgePC;
 
 public static class ServicePreferences
 {
+ public static string Classify(string name)=>new[]{"RpcSs","DcomLaunch","RpcEptMapper","WinDefend","mpssvc","BFE","EventLog","SamSs","LSM","Schedule","Winmgmt","Dhcp","Dnscache","nsi","PlugPlay","Power"}.Contains(name,StringComparer.OrdinalIgnoreCase)?"SYSTEM CRITICAL — read only":"CAUTION — feature dependencies must be reviewed";
  public static readonly string[] Names=["Spooler","bthserv","SysMain","WSearch","DiagTrack","XblAuthManager","XblGameSave","XboxGipSvc","XboxNetApiSvc"];
  public static bool Contains(string id)=>id.StartsWith("service:",StringComparison.Ordinal)&&Names.Contains(id[8..],StringComparer.Ordinal);
  public const string Documentation="https://learn.microsoft.com/en-us/windows/win32/api/winsvc/nf-winsvc-changeserviceconfigw";
@@ -60,5 +61,5 @@ public static class ServicePreferences
   "XboxNetApiSvc"=>"Xbox networking, party or multiplayer features may fail.",
   _=>throw new InvalidDataException("Unknown service.")
  })+" Only startup configuration changes; running state is untouched. Restore the captured type before using affected features.";
- public static readonly OperationDefinition[] Definitions=Names.Select(name=>new OperationDefinition("service:"+name,1,name+" startup configuration",name=="DiagTrack"?"Privacy":"Services",Purpose(name),Disadvantages(name),Documentation,Evidence.DocumentedBehavior,"Advanced · functionality", "Exact saved startup type and delayed-start flag; runtime state is not changed",true,true)).ToArray();
+ public static readonly OperationDefinition[] Definitions=Names.Select(name=>new OperationDefinition("service:"+name,1,name+" startup configuration",name=="DiagTrack"?"Privacy":"Services",Purpose(name),Disadvantages(name),Documentation,Evidence.DocumentedBehavior,"Advanced · functionality", "Exact saved startup type and delayed-start flag; runtime state is not changed",false,true)).ToArray();
 }

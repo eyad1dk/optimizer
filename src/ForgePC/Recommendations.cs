@@ -5,6 +5,16 @@ namespace ForgePC;
 public record Recommendation(string Id,string Category,string Target,string Reason,bool Optimized);
 public static class RecommendationEngine
 {
+ public static string? NetworkPropertyKind(HardwareControl control)
+ {
+  if(!control.Id.StartsWith("hw:net:prop:")||!control.Binary)return null;
+  var keyword=Encoding.UTF8.GetString(Convert.FromBase64String(control.Id.Split(':')[4]));
+  if(keyword=="*EEE")return "EEE";if(keyword=="*InterruptModeration")return "InterruptModeration";
+  var name=new string(control.Name.Split('·')[0].Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray());
+  return name switch {"energyefficientethernet" or "eee"=>"EEE","interruptmoderation"=>"InterruptModeration",_=>null};
+ }
+ public static bool SafeForAutomatic(string id)=>Catalog.Get(id).Risk.StartsWith("Low",StringComparison.Ordinal);
+ public static readonly string[] RuleIds=["memory.compression","storage.trim","windows.reduced-motion","power.installed-plan","gaming.recording-permission","network.rss","network.rsc","network.eee","network.interrupt-moderation"];
  public static readonly string[] Focuses=["Balanced","Gaming","Competitive","Coding","Performance","Quiet","Battery Saver","Network Low Latency","Maximum Throughput","Low-End PC"];
  public static IReadOnlyList<Recommendation> Calculate(HardwareSnapshot h,IReadOnlyDictionary<string,string> states,IReadOnlySet<string> supported,IReadOnlySet<string> installedPlans,bool? onBattery,string focus,bool noRecording)
  {
@@ -14,7 +24,6 @@ public static class RecommendationEngine
   bool pressure=h.TotalMemory>0&&h.FreeMemory>=0&&(double)h.FreeMemory/h.TotalMemory<.2;
   bool lowMemory=h.TotalMemory>0&&h.TotalMemory<=8L*1024*1024*1024;
   if(h.Threads>=4&&(lowMemory||pressure))Add("hw:compression","On","Memory","Limited RAM or current memory pressure; compression can reduce paging at a CPU cost.");
-  if(h.Controls.FirstOrDefault(c=>c.Id=="hw:pagefile") is {} page&&pressure){var automatic=page.Choices.FirstOrDefault(c=>c.Label=="System managed");if(automatic!=null)Add(page.Id,automatic.Value,"Memory","Current memory pressure: automatic pagefile sizing permits Windows to manage commit capacity; disk space and restart required.");}
   bool solid=h.Disks.ValueKind==JsonValueKind.Array&&h.Disks.EnumerateArray().Any(d=>d.TryGetProperty("MediaType",out var t)&&t.ToString()=="SSD");
   if(solid)Add("hw:trim","On","Storage","An SSD was detected. NTFS deletion notifications let a supporting storage stack reclaim deleted blocks.");
   if(focus is "Competitive"||focus=="Low-End PC"&&(lowMemory||pressure))foreach(var id in new[]{"animations","menus","minimize-animation"})Add(id,"Off","Windows","Reduced desktop motion was selected for this workload. This is a responsiveness preference, not an FPS claim.");
@@ -30,8 +39,9 @@ public static class RecommendationEngine
    var g=guid.GetString();string medium=n.GetProperty("Medium").ToString();bool ethernet=medium=="802.3";
    if(h.Threads>=4&&ethernet)Add("hw:net:rss:"+g,"On","Network","Physical Ethernet and multiple CPU threads detected; RSS distributes receive processing. Reconfiguration may interrupt connectivity.");
    if(focus=="Maximum Throughput"&&h.Threads>=4&&ethernet)foreach(var kind in new[]{"rsc4","rsc6"})Add("hw:net:"+kind+":"+g,"On","Network","Throughput focus: supported coalescing can reduce receive CPU work; latency effects vary.");
-   if(focus is "Network Low Latency" or "Competitive"&&ethernet&&h.Laptop==false&&onBattery==false&&h.Threads>=4)foreach(var keyword in new[]{"*InterruptModeration","*EEE"}){
-    var id="hw:net:prop:"+g+":"+Convert.ToBase64String(Encoding.UTF8.GetBytes(keyword));var c=h.Controls.FirstOrDefault(c=>c.Id==id&&c.Binary);if(c!=null)Add(id,c.Off,"Network",keyword=="*EEE"?"Explicit latency focus on desktop Ethernet: disabling EEE avoids energy-saving transitions at a power cost; no measured latency gain claimed.":"Explicit latency focus: fewer batched interrupts may increase CPU load and reduce throughput. Test your workload; driver restart required.");
+   if(focus is "Network Low Latency" or "Competitive"&&ethernet&&h.Laptop==false&&onBattery==false&&h.Threads>=4)foreach(var c in h.Controls.Where(c=>c.Id.StartsWith("hw:net:prop:"+g+":")&&NetworkPropertyKind(c)!=null)){
+    var kind=NetworkPropertyKind(c);if(h.Controls.Count(other=>other.Id.StartsWith("hw:net:prop:"+g+":")&&NetworkPropertyKind(other)==kind)!=1)continue;
+    Add(c.Id,c.Off,"Network",kind=="EEE"?"Explicit latency focus on desktop Ethernet: disabling EEE avoids energy-saving transitions at a power cost; no measured latency gain claimed.":"Explicit latency focus: fewer batched interrupts may increase CPU load and reduce throughput. Test your workload; driver restart required.");
    }
   }
   return rules.Values.OrderBy(r=>r.Category).ThenBy(r=>r.Id).ToArray();

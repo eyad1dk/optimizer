@@ -6,7 +6,7 @@ using System.Windows;
 
 namespace ForgePC;
 
-public record ServiceEntry(string Name,string Display,string State,string StartMode,string Description) {public string Summary=>$"{Display} ({Name}) · {State} · {StartMode}";}
+public record ServiceEntry(string Name,string Display,string State,string StartMode,string Description) {public string Classification=>ServicePreferences.Classify(Name);public string Summary=>$"{Display} ({Name}) · {State} · {StartMode} · {Classification}";}
 public record FeatureLink(string Title,string Destination,string Detail);
 public sealed class FeatureTools : Observable
 {
@@ -26,7 +26,7 @@ public sealed class FeatureTools : Observable
  private string startupSummary="Current-user Run registrations; Windows startup approval can override them.";
  public string StartupSummary{get=>startupSummary;private set=>Set(ref startupSummary,value);}
  private readonly IUserInteraction ui;private readonly LocalLogger logger;private string section="CPU",information="Refresh to read current configuration.",commandOutput="No system command has run.";private bool busy;
- public string Section{get=>section;set{Set(ref section,value);Information="Refresh to read current "+value+" information.";Links.Clear();foreach(var link in LinksFor(value))Links.Add(link);Tasks.Clear();foreach(var task in SystemCommands.Tasks.Where(t=>value=="Diagnostics"&&t.Id!="dns-flush"||value=="Storage"&&t.Id is "trim-check" or "drive-analyze" or "drive-optimize" or "disk-scan" or "component-analyze" or "component-clean"||value=="Cleanup"&&t.Id is "component-analyze" or "component-clean"))Tasks.Add(task);}}
+ public string Section{get=>section;set{Set(ref section,value);Information="Refresh to read current "+value+" information.";Links.Clear();foreach(var link in LinksFor(value))Links.Add(link);Tasks.Clear();foreach(var task in Catalog.TasksFor(value))Tasks.Add(task);}}
  public string Information{get=>information;private set=>Set(ref information,value);}
  public string CommandOutput{get=>commandOutput;private set=>Set(ref commandOutput,value);}
  public string Privilege=>SystemCommands.IsAdministrator?"Administrator session":"Standard user · individual system tasks request elevation";

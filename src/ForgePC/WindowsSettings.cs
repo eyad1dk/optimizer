@@ -4,7 +4,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 namespace ForgePC;
-public sealed class WindowsSettings : IConditionalSettings
+public sealed class WindowsSettings : IConditionalSettings, IChangeGuardedSettings
 {
  [DllImport("user32.dll", EntryPoint="SystemParametersInfoW", SetLastError=true)] [return:MarshalAs(UnmanagedType.Bool)]
  private static extern bool GetParameter(uint action,uint parameter,out int value,uint flags);
@@ -13,6 +13,7 @@ public sealed class WindowsSettings : IConditionalSettings
  [StructLayout(LayoutKind.Sequential)] private struct AnimationInfo { public uint Size; public int Enabled; }
  [DllImport("user32.dll", EntryPoint="SystemParametersInfoW", SetLastError=true)] [return:MarshalAs(UnmanagedType.Bool)]
  private static extern bool AnimationParameter(uint action,uint parameter,ref AnimationInfo value,uint flags);
+ public Action? PrepareConnectivityCheck(string id)=>NetworkGuard.Prepare(id);
  public string Read(string key)
  {
   if(HardwareBackend.Contains(key))return HardwareBackend.Read(key).Value;

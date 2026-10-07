@@ -11,26 +11,13 @@ public record SystemTask(string Id,string Name,string Executable,string[] Argume
 public record TaskMessage(string Kind,string Text,int? ExitCode=null);
 public static class SystemCommands
 {
- public static readonly SystemTask[] Tasks=[
-  new("component-analyze","Analyze Windows component store","dism.exe",["/Online","/Cleanup-Image","/AnalyzeComponentStore"],true,"Reports Windows component-store cleanup estimates. It is not the Windows Update download cache."),
-  new("component-clean","Clean superseded Windows components","dism.exe",["/Online","/Cleanup-Image","/StartComponentCleanup"],true,"Windows servicing removes superseded components. Permanent cleanup; no app rollback. Does not use ResetBase or disable Windows Update."),
-  new("sfc-repair","Repair protected system files","sfc.exe",["/scannow"],true,"Repairs Windows protected files. Permanent servicing operation; no exact app rollback. Save work first. Follow-up verification runs automatically."),
-  new("dism-repair","Repair Windows component store","dism.exe",["/Online","/Cleanup-Image","/RestoreHealth"],true,"Repairs the component store and may download repair content. Permanent servicing operation; no exact app rollback. Follow-up ScanHealth runs automatically."),
-  new("drive-analyze","Analyze system drive","defrag.exe",[Path.GetPathRoot(Environment.SystemDirectory)!.TrimEnd('\\'),"/A","/V"],true,"Analyzes the system volume using Windows Optimize Drives; does not run defragmentation."),
-  new("drive-optimize","Optimize system drive for its media type","defrag.exe",[Path.GetPathRoot(Environment.SystemDirectory)!.TrimEnd('\\'),"/O","/U","/V"],true,"Windows selects optimization appropriate for the drive type (/O). Can cause disk activity; cannot be reversed. No forced HDD defrag on SSD."),
-  new("disk-scan","Scan system volume","chkdsk.exe",[Path.GetPathRoot(Environment.SystemDirectory)!.TrimEnd('\\'),"/scan"],true,"Online NTFS scan. Windows may schedule required repairs. Does not force dismount; unsupported filesystems return an error."),
-  new("dns-flush","Flush DNS cache","ipconfig.exe",["/flushdns"],true,"Clears the Windows resolver cache. New lookups rebuild it; this does not lower network latency."),
-  new("dism-check","DISM quick health check","dism.exe",["/Online","/Cleanup-Image","/CheckHealth"],true,"Reads the component-store health flag. It does not perform a full scan or repair."),
-  new("dism-scan","DISM health scan","dism.exe",["/Online","/Cleanup-Image","/ScanHealth"],true,"A thorough component-store scan can take several minutes."),
-  new("sfc-verify","Verify protected system files","sfc.exe",["/verifyonly"],true,"Scans protected system files without repairing them. This can take several minutes."),
-  new("trim-check","Check TRIM notification configuration","fsutil.exe",["behavior","query","DisableDeleteNotify"],true,"Reads deletion-notification configuration. A configured flag alone does not prove a particular drive supports TRIM.")
- ];
+ public static SystemTask[] Tasks=>Catalog.SystemTasks;
  public static SystemTask Get(string id)=>Tasks.SingleOrDefault(t=>t.Id==id)??throw new InvalidDataException("Unknown system action.");
  public static bool IsAdministrator{get{using var identity=WindowsIdentity.GetCurrent();return new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator);}}
  [DllImport("kernel32.dll",SetLastError=true)] [return:MarshalAs(UnmanagedType.Bool)] private static extern bool GetNamedPipeClientProcessId(IntPtr pipe,out uint pid);
  public static async Task<int> RunAsync(string id,Action<string> output)
  {
-  var task=Get(id);
+  var task=Get(id);var support=Catalog.Action(id).Supported();if(!support.Eligible)throw new InvalidOperationException(support.Reason);
   if(!task.Administrator||IsAdministrator)return await RunLocal(task,m=>{output(m.Text);return Task.CompletedTask;});
   return await ReadHelper(["--system-task",id],output);
  }

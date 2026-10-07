@@ -7,7 +7,8 @@ namespace ForgePC;
 
 public record StartupRegistration(string Name,string Value,RegistryValueKind Kind,string State,string? RecoveryId=null)
 {public string Display=>$"{Name} · {State}";public bool CanDisable=>RecoveryId==null;public bool CanRestore=>RecoveryId!=null;}
-public record StartupRecovery(int Schema,string Id,string Name,string Original,RegistryValueKind Kind,string State);
+public record StartupRecovery(int Schema,string Id,string Name,string Original,RegistryValueKind Kind,string State)
+{ public string Source{get;init;}="HKCU Run"; public string Path{get;init;}=@"Software\Microsoft\Windows\CurrentVersion\Run"; public bool OriginallyEnabled{get;init;}=true; public DateTime CreatedUtc{get;init;}=DateTime.UtcNow; }
 public interface IStartupRegistry
 {
  List<StartupRegistration> Entries(); void DeleteIfUnchanged(StartupRegistration entry); void RestoreIfMissing(StartupRecovery recovery);
@@ -51,7 +52,7 @@ public sealed class StartupManager(string directory,IStartupRegistry? registry=n
   }
  }
  public static void Validate(StartupRecovery record)
- {if(record.Schema!=1||!Guid.TryParseExact(record.Id,"N",out _)||string.IsNullOrWhiteSpace(record.Name)||record.Name.Length>16383||record.Original==null||record.Original.Length>16384||record.Kind is not(RegistryValueKind.String or RegistryValueKind.ExpandString)||record.State is not("prepared" or "disabled" or "restored"))throw new InvalidDataException("Unsupported startup recovery data.");}
+ {if(record.Source!="HKCU Run"||record.Path!=@"Software\Microsoft\Windows\CurrentVersion\Run"||!record.OriginallyEnabled||record.Schema!=1||!Guid.TryParseExact(record.Id,"N",out _)||string.IsNullOrWhiteSpace(record.Name)||record.Name.Length>16383||record.Original==null||record.Original.Length>16384||record.Kind is not(RegistryValueKind.String or RegistryValueKind.ExpandString)||record.State is not("prepared" or "disabled" or "restored"))throw new InvalidDataException("Unsupported startup recovery data.");}
  private void Save(StartupRecovery record)
  {Validate(record);Directory.CreateDirectory(directory);var path=Path.Combine(directory,record.Id+".json");using(var stream=new FileStream(path+".tmp",FileMode.Create,FileAccess.Write,FileShare.None,4096,FileOptions.WriteThrough)){JsonSerializer.Serialize(stream,record,Json);stream.Flush(true);}File.Move(path+".tmp",path,true);}
 }

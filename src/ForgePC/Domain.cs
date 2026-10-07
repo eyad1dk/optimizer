@@ -9,7 +9,7 @@ public record OperationDefinition(string Id, int Version, string Title, string C
  string Tradeoff, string Documentation, Evidence Evidence = Evidence.DocumentedBehavior,
  string Risk = "Low · user preference", string Recovery = "Exact saved value", bool Restart = false,
  bool RequiresAdministrator = false, bool RequiresRestorePoint = false, string[]? Dependencies = null);
-public static class Catalog
+public static partial class Catalog
 {
  public static readonly OperationDefinition[] Operations = [
   new("animations", 1, "App animations", "Windows", "Control transient motion inside Windows apps.",
@@ -94,7 +94,7 @@ public sealed class OperationItem(OperationDefinition definition) : Observable
  public void ResetAction()=>ActionLabel=Id.StartsWith("hw:service:")?(Raw=="On"?"Stop":"Start"):IsBinary?(BinaryTarget(Raw)==(Hardware?.On??"On")?"Enable":"Disable"):"Apply";
  private string badge="",reason="";
  public string Badge{get=>badge;set=>Set(ref badge,value);}
- public string RecommendationReason{get=>reason;set=>Set(ref reason,value);}
+ public string RecommendationReason{get=>reason;set{Set(ref reason,value);Raise(nameof(AuditDetails));}}
  private string actionLabel="Apply",result="";
  public string ActionLabel{get=>actionLabel;set=>Set(ref actionLabel,value);}
  public string Result{get=>result;set=>Set(ref result,value);}
@@ -102,15 +102,17 @@ public sealed class OperationItem(OperationDefinition definition) : Observable
  public string Meta => Definition.Category + " · " + Definition.Risk + (Definition.Restart?" · Restart may be required":" · No restart") + (Definition.RequiresAdministrator?" · Administrator":"");
  private string current = "Not read", target = "", compatibility = "Checking";
  private bool eligible,canRestore;
- public bool CanRestore{get=>canRestore;set=>Set(ref canRestore,value);}
- public string Current { get => current; set => Set(ref current, value); }
+ public bool CanRestore{get=>canRestore;set{Set(ref canRestore,value);Raise(nameof(AuditDetails));}}
+ private string original="No saved original";
+ public string Original{get=>original;set{Set(ref original,value);Raise(nameof(AuditDetails));}}
+ public string Current { get => current; set {Set(ref current, value);Raise(nameof(AuditDetails));} }
  public string Target { get => target; set { if(value!=null)Set(ref target,value); } }
  public string Compatibility { get => compatibility; set => Set(ref compatibility, value); }
  public bool Eligible { get => eligible; set => Set(ref eligible, value); }
  public string Purpose => Definition.Purpose;
  public string Tradeoff => Definition.Tradeoff;
  public string Recovery => Definition.Recovery;
- public string AuditDetails=>OptimizationAudit.For(Definition).Summary;
+ public string AuditDetails=>OptimizationAudit.For(Definition).Summary+"\nWhy recommended: "+(RecommendationReason.Length>0?RecommendationReason:"No automatic recommendation: this is a manual preference or no matching supported hardware/workload rule was found.")+"\nOriginal value: "+Original+"\nCurrent value: "+Current+"\nRestore: "+(CanRestore?"Saved original available":"No active saved change")+(Id.StartsWith("service:")||Id.StartsWith("hw:service:")?"\nService classification: CAUTION — optional feature may stop working. Critical services are excluded from all mutation controls.":"");
  public string Evidence => Definition.Evidence.ToString();
  public string SupportedWindows=>"Windows 10 22H2 / Windows 11 · capability checked";
  public string Level=>Definition.Risk.StartsWith("Advanced")||Definition.Risk.StartsWith("Moderate")?"ADVANCED":"SAFE";
@@ -132,7 +134,7 @@ public static class GuidanceCatalog
   new("Installed applications", "Windows", "Inventory is for review. Names alone do not show that an app is unnecessary. Uninstalling can remove user data.", "Open installed apps", "ms-settings:appsfeatures", "Windows uninstall workflow"),
   new("Startup review", "Startup", "Review what starts at sign-in. The local inventory is partial; Windows also lists packaged startup apps.", "Manage startup", "ms-settings:startupapps", "Windows supported settings"),
   new("Storage cleanup", "Cleanup", "Review Windows-managed cleanup. Downloads and personal files are not selected by this app.", "Open storage", "ms-settings:storagesense", "Windows-managed cleanup"),
-  new("Network settings", "Network", "Inspect adapters and DNS in Diagnostics before troubleshooting. EZoptimizer does not rewrite DNS or reset adapters.", "Open network", "ms-settings:network-status", "Windows supported settings"),
+  new("Network settings", "Network", "Inspect adapters and DNS in Diagnostics before troubleshooting. DNS edits use saved originals; broad Windows Network Reset is outside app recovery.", "Open network", "ms-settings:network-status", "Windows supported settings"),
   new("Notifications", "Windows", "Reduce interruptions for coding or calls using Windows controls.", "Open notifications", "ms-settings:notifications", "Windows supported settings"),
   new("Windows updates", "Windows", "Keep security servicing current. EZoptimizer never disables updates.", "Open updates", "ms-settings:windowsupdate", "Windows supported settings")
  ];

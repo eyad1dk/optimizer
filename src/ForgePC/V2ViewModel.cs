@@ -7,7 +7,8 @@ public sealed partial class MainViewModel
  public Command RestoreOne{get;private set;}=null!;
  public Command ApplyOne{get;private set;}=null!;public Command RefreshControls{get;private set;}=null!;public Command ApplyProfileNow{get;private set;}=null!;public Command HighPerformance{get;private set;}=null!;
  public string AdminStatus=>SystemCommands.IsAdministrator?"● Administrator":"● Standard User";
- public string RestartIndicator=>History.Any(j=>j.IsActive&&j.Operations.Any(o=>o.State=="applied"&&Catalog.Get(o.Id).Restart))?"⚠ Restart may be required":"No restart flagged by EZoptimizer";
+ public string RestartIndicator=>RestartTracking.Summary(History,RestartTracking.BootUtc);
+ public Command RestartPc{get;private set;}=null!;
  public IEnumerable<OperationItem> PageOperations=>Operations.Where(o=>o.Eligible&&(o.Definition.Category==Page||Page=="GPU"&&o.Id=="hw:policy:dvr"||Page=="CPU"&&o.Id=="power"||Page=="Gaming"&&(o.Id=="power"||o.Id=="hw:policy:throttle"||o.Id==PointerAcceleration.Id)));
  public IEnumerable<V2Profile> ProfileRows=>FocusChoices.Select(p=>new V2Profile(p,hardwareSnapshot==null?0:RecommendationEngine.Calculate(hardwareSnapshot,Operations.ToDictionary(o=>o.Id,o=>o.Raw),Operations.Where(o=>o.Eligible).Select(o=>o.Id).ToHashSet(),Plans.Select(p=>p.Id).ToHashSet(),WindowsSystemProbe.BatteryState(),p,NoRecording).Count));
  public bool HasHighPerformance=>Plans.Any(p=>p.Id=="8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c");
@@ -20,11 +21,12 @@ public sealed partial class MainViewModel
   InitializeAdaptive(make);
   Tools.RefreshHardwareInfo=async ()=>{await RefreshSettings();return HardwareInformation(Tools.Section);};
   bool Available()=>!Busy&&!Tools.Busy&&!Actions.Busy&&!recoveryOnly;
+  RestartPc=make(async _=>{if(!ui.Confirm("Restart Windows now? Save all work. Windows may ask apps to close; EZoptimizer does not force-close them.","Restart PC"))return;var info=new System.Diagnostics.ProcessStartInfo(System.IO.Path.Combine(Environment.SystemDirectory,"shutdown.exe")){UseShellExecute=false,CreateNoWindow=true};foreach(var arg in new[]{"/r","/t","0"})info.ArgumentList.Add(arg);using var process=System.Diagnostics.Process.Start(info)??throw new System.IO.IOException("Windows restart could not be requested.");await process.WaitForExitAsync();if(process.ExitCode!=0)throw new System.IO.IOException("Windows refused the restart request (exit "+process.ExitCode+").");Status="Restart requested from Windows.";},Available);
   RefreshControls=make(async _=>{Busy=true;try{await RefreshSettings();Status=RecommendationSummary;}finally{Busy=false;}},Available);
   ApplyOne=make(async p=>{if(p is OperationItem item)await ApplySingle(item);},Available);
   RestoreOne=make(async p=>{if(p is not OperationItem item)return;var journal=History.FirstOrDefault(j=>j.IsActive&&j.Operations.Any(o=>o.Id==item.Id&&o.State!="rolled back"));if(journal==null){Status="No saved original needs restoring.";return;}item.ActionLabel="Restoring…";try{await RestoreSubset(journal,new HashSet<string>{item.Id});item.Result=item.CanRestore?"× Recovery needs review; see Recovery.":"✓ Original value verified";}finally{item.ResetAction();}},Available);
   HighPerformance=make(async _=>{var item=Operations.Single(o=>o.Id=="power");if(!HasHighPerformance)throw new InvalidOperationException("High Performance is not installed on this PC.");item.Target="8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c";await ApplySingle(item);},()=>Available()&&HasHighPerformance);
-  ApplyProfileNow=make(async p=>{if(p is string selected)OptimizationFocus=selected;await ApplyRecommendations(null);},Available);
+  ApplyProfileNow=make(async p=>{if(p is string selected)OptimizationFocus=selected;await ApplyRecommendations(null,includeAdvanced:true);},Available);
  }
  private async Task ApplySingle(OperationItem item)
  {
